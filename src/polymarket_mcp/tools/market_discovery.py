@@ -92,6 +92,14 @@ async def search_markets(
 ) -> List[Dict[str, Any]]:
     """
     Search markets by text query, slug, or keywords.
+    
+    根据官方文档最佳实践优化:
+    https://docs.polymarket.com/developers/gamma-markets-api/fetch-markets-guide
+    
+    搜索策略:
+    1. 使用 events 端点获取所有活跃事件（官方推荐）
+    2. 本地进行关键词模糊匹配
+    3. 按交易量排序返回最相关结果
 
     Args:
         query: Search query (market title, slug, or keywords)
@@ -102,16 +110,95 @@ async def search_markets(
         List of markets matching the query
     """
     try:
-        # Fetch markets with search
-        params = {"query": query, "closed": "false"}  # 默认只返回活跃市场
-
-        if filters:
-            params.update(filters)
-
-        markets = await _fetch_gamma_markets("/markets", params, limit)
-
-        logger.info(f"Found {len(markets)} markets for query: {query}")
-        return markets
+        # 将查询拆分为关键词（用于模糊匹配）
+        keywords = [kw.strip().lower() for kw in query.split() if len(kw.strip()) > 1]
+        
+        # 使用 events 端点获取活跃事件（官方推荐方式）
+        # 参考: https://docs.polymarket.com/developers/gamma-markets-api/fetch-markets-guide#best-practices
+        rate_limiter = get_rate_limiter()
+        await rate_limiter.acquire(EndpointCategory.GAMMA_API)
+        
+        all_markets = []
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # 分页获取 events（每个 event 包含关联的 markets）
+            for offset in [0, 100, 200]:
+                params = {
+                    "closed": "false",
+                    "limit": 100,
+                    "offset": offset,
+                    "order": "volume24hr",
+                    "ascending": "false"
+                }
+                
+                if filters:
+                    params.update(filters)
+                
+                url = f"{GAMMA_API_URL}/events"
+                response = await client.get(url, params=params)
+                
+                if response.status_code != 200:
+                    break
+                    
+                events = response.json()
+                if not events:
+                    break
+                
+                # 从每个 event 中提取 markets
+                for event in events:
+                    event_markets = event.get("markets", [])
+                    if event_markets:
+                        all_markets.extend(event_markets)
+                    else:
+                        # 如果 event 没有嵌套 markets，将 event 本身作为市场信息
+                        all_markets.append({
+                            "question": event.get("title"),
+                            "description": event.get("description", ""),
+                            "slug": event.get("slug"),
+                            "volumeNum": event.get("volume", 0),
+                            "volume24hr": event.get("volume24hr", 0),
+                            "endDate": event.get("endDate"),
+                            "closed": event.get("closed", False),
+                            **event
+                        })
+        
+        logger.debug(f"Fetched {len(all_markets)} markets from events endpoint")
+        
+        # 本地关键词过滤（模糊匹配）
+        matched_markets = []
+        for market in all_markets:
+            question = market.get("question", "").lower()
+            description = market.get("description", "").lower()
+            slug = market.get("slug", "").lower()
+            title = market.get("title", "").lower()
+            
+            # 检查所有关键词是否都匹配（AND 逻辑）
+            all_match = all(
+                kw in question or kw in description or kw in slug or kw in title
+                for kw in keywords
+            )
+            
+            if all_match:
+                matched_markets.append(market)
+        
+        # 按交易量排序
+        matched_markets.sort(
+            key=lambda m: float(m.get("volumeNum", 0) or m.get("volume", 0) or 0),
+            reverse=True
+        )
+        
+        # 去重（按 slug）
+        seen_slugs = set()
+        unique_markets = []
+        for m in matched_markets:
+            slug = m.get("slug")
+            if slug and slug not in seen_slugs:
+                seen_slugs.add(slug)
+                unique_markets.append(m)
+        
+        result = unique_markets[:limit]
+        logger.info(f"Found {len(result)} markets for query: {query}")
+        return result
 
     except Exception as e:
         logger.error(f"Failed to search markets: {e}")
