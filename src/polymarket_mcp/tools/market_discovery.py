@@ -103,7 +103,7 @@ async def search_markets(
     """
     try:
         # Fetch markets with search
-        params = {"query": query}
+        params = {"query": query, "closed": "false"}  # 默认只返回活跃市场
 
         if filters:
             params.update(filters)
