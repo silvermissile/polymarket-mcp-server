@@ -1,0 +1,426 @@
+# Polymarket MCP Server - Cursor Rules
+
+## 项目概述
+这是一个基于 Model Context Protocol (MCP) 的 Polymarket 预测市场交易服务器，使用 Python 3.14 开发，通过 UV 管理依赖。
+
+## 核心技术栈
+- **Python**: 3.14+ (使用 UV 管理依赖和虚拟环境)
+- **MCP**: Model Context Protocol 服务器实现
+- **异步编程**: asyncio, aiohttp
+- **区块链**: Polygon (L2), Web3.py, py_clob_client
+- **API**: Polymarket CLOB API, Gamma API
+- **配置管理**: Pydantic Settings, python-dotenv
+
+## 依赖管理规则
+
+### UV 工具链
+- **必须使用 UV**: 所有依赖管理操作必须通过 `uv` 命令执行
+- **虚拟环境**: 项目使用 `.venv/` 目录，已在 `.gitignore` 中
+- **锁文件**: `uv.lock` 必须提交到版本控制，确保依赖可重现
+
+### 常用命令（通过 Makefile）
+```bash
+make uv-install      # 安装 UV（如果未安装）
+make uv-sync         # 同步依赖（等同于 uv sync）
+make uv-add PKG=xxx  # 添加新依赖
+make uv-dev          # 安装开发依赖
+make uv-run          # 运行 MCP 服务器
+make uv-test         # 运行测试
+make uv-format       # 代码格式化
+make uv-lint         # 代码检查
+make uv-verify       # 完整验证（格式化+检查+测试）
+```
+
+### 添加依赖的正确方式
+```bash
+# 添加生产依赖
+uv add package-name
+
+# 添加开发依赖
+uv add --dev package-name
+
+# 添加特定版本
+uv add "package-name>=1.0.0,<2.0.0"
+
+# 同步依赖（安装后必须执行）
+uv sync
+```
+
+## 代码风格规范
+
+### 注释要求
+- **所有关键逻辑必须有中文注释**
+- **函数/类的 docstring 使用英文**（保持与 MCP 生态一致）
+- **行内注释使用中文**，解释复杂逻辑
+
+示例：
+```python
+async def create_api_credentials(self) -> Dict[str, str]:
+    """Create new L2 API credentials using L1 signature.
+    
+    Returns:
+        Dict containing api_key, api_secret, and api_passphrase
+    """
+    # 生成随机 nonce 用于签名
+    nonce = int(time.time() * 1000)
+    
+    # 使用私钥对 nonce 进行签名（L1 认证）
+    signature = self._sign_message(str(nonce))
+    
+    # 调用 CLOB API 创建凭证
+    response = await self._create_credentials_request(nonce, signature)
+    return response
+```
+
+### 日志规范
+- **禁止使用 `print()` 输出调试信息**
+- **必须使用 `logging` 模块**
+- **日志级别**: DEBUG < INFO < WARNING < ERROR < CRITICAL
+
+```python
+import logging
+logger = logging.getLogger(__name__)
+
+# 正确的日志使用
+logger.debug("详细的调试信息")
+logger.info("重要的运行时信息")
+logger.warning("警告信息")
+logger.error("错误信息", exc_info=True)
+
+# 错误示例（禁止）
+print("Debug info")  # ❌ 不要这样做
+```
+
+### 格式化工具
+- **Black**: 代码格式化（行长度 100）
+- **isort**: import 排序
+- **Ruff**: 快速 linting
+- **mypy**: 类型检查
+
+## 配置管理
+
+### 环境变量
+- **配置文件**: `.env` (已在 `.gitignore` 中)
+- **配置类**: `src/polymarket_mcp/config.py` 中的 `PolymarketConfig`
+- **加载方式**: 使用 `pydantic-settings` 自动加载
+
+### 运行模式
+1. **DEMO 模式** (`DEMO_MODE=true`)
+   - 只读模式，不需要真实钱包
+   - 使用虚拟凭证
+   - 适合开发和测试
+
+2. **完整模式** (`DEMO_MODE=false`)
+   - 需要 Polygon 私钥和地址
+   - 可选 API 密钥（会自动创建）
+   - 支持真实交易
+
+### 敏感信息处理
+- **永远不要硬编码私钥、密码或 API 密钥**
+- **使用环境变量或 `.env` 文件**
+- **生产环境使用 Kubernetes Secrets 或密钥管理服务**
+
+## 安全规范
+
+### 代码审查重点
+1. **网络请求**: 所有外部 API 调用必须验证 URL 合法性
+2. **文件访问**: 不得访问项目目录外的敏感文件
+3. **密钥管理**: 使用 `config.py` 统一管理，不得分散定义
+4. **输入验证**: 所有用户输入必须验证和清理
+
+### 已验证的安全实践
+- `.env` 文件已在 `.gitignore` 中
+- 所有 API 端点使用官方 URL
+- 使用 Pydantic 进行配置验证
+- Docker 镜像使用非 root 用户运行
+
+## MCP 工具开发规范
+
+### 工具注册
+所有 MCP 工具必须在 `src/polymarket_mcp/server.py` 中注册：
+
+```python
+@mcp.tool()
+async def tool_name(arg1: str, arg2: int) -> str:
+    """Tool description in English.
+    
+    Args:
+        arg1: Description of arg1
+        arg2: Description of arg2
+        
+    Returns:
+        Description of return value
+    """
+    # 实现逻辑（关键步骤添加中文注释）
+    logger.info(f"执行工具: tool_name, 参数: {arg1}, {arg2}")
+    
+    try:
+        result = await some_async_operation()
+        return result
+    except Exception as e:
+        logger.error(f"工具执行失败: {e}", exc_info=True)
+        raise
+```
+
+### 工具分类
+1. **市场发现** (8 个工具): 搜索、过滤、发现市场
+2. **市场分析** (10 个工具): 价格、订单簿、流动性、历史数据
+3. **实时监控** (7 个工具): WebSocket 订阅、实时更新
+
+### 错误处理
+```python
+try:
+    result = await risky_operation()
+except PolymarketAPIError as e:
+    # 处理 API 特定错误
+    logger.error(f"Polymarket API 错误: {e}")
+    raise McpError(ErrorCode.InternalError, f"API 调用失败: {str(e)}")
+except Exception as e:
+    # 处理未预期的错误
+    logger.error(f"未预期的错误: {e}", exc_info=True)
+    raise
+```
+
+## Git 工作流
+
+### 分支管理
+- **main**: 主分支，保持稳定
+- **upstream**: 原始上游仓库 (caiovicentino/polymarket-mcp-server)
+- **origin**: 个人 fork (silvermissile/polymarket-mcp-server)
+
+### 提交规范
+使用 Conventional Commits 格式：
+
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+**Type 类型**:
+- `feat`: 新功能
+- `fix`: Bug 修复
+- `docs`: 文档更新
+- `style`: 代码格式（不影响功能）
+- `refactor`: 重构
+- `test`: 测试相关
+- `chore`: 构建/工具链更新
+- `security`: 安全相关
+
+**示例**:
+```
+feat(tools): 添加市场趋势分析工具
+
+- 实现 get_trending_markets 工具
+- 支持 24h/7d/30d 时间范围
+- 添加成交量排序功能
+
+Closes #123
+```
+
+### 提交前检查
+```bash
+make uv-verify  # 运行完整验证
+git status      # 检查更改
+git diff        # 查看具体修改
+```
+
+## 测试规范
+
+### 测试文件组织
+```
+tests/
+├── unit/           # 单元测试
+├── integration/    # 集成测试
+└── conftest.py     # pytest 配置
+```
+
+### 运行测试
+```bash
+make uv-test              # 运行所有测试
+uv run pytest tests/unit  # 只运行单元测试
+uv run pytest -v          # 详细输出
+uv run pytest -k "test_market"  # 运行特定测试
+```
+
+### 测试覆盖率
+```bash
+uv run pytest --cov=src/polymarket_mcp --cov-report=html
+```
+
+## 文档规范
+
+### 文档结构
+```
+doc/
+├── CONFIGURATION_GUIDE.md  # 配置指南
+├── security_audit.md       # 安全审计报告
+├── mcp/                    # MCP 相关文档
+│   ├── README.md           # MCP 工具文档
+│   └── mcp.full-mode.json.example
+└── dev/                    # 开发文档
+    └── MIGRATION_SUMMARY.md
+```
+
+### 文档更新原则
+- 新增功能必须更新相关文档
+- API 变更必须更新 `doc/mcp/README.md`
+- 配置变更必须更新 `CONFIGURATION_GUIDE.md`
+- 重大更改必须更新 `README.md`
+
+## 开发工作流
+
+### 初始化开发环境
+```bash
+# 1. 克隆仓库
+git clone https://github.com/silvermissile/polymarket-mcp-server.git
+cd polymarket-mcp-server
+
+# 2. 安装 UV（如果未安装）
+make uv-install
+
+# 3. 同步依赖
+make uv-sync
+
+# 4. 配置环境变量（DEMO 模式）
+cat > .env << EOF
+DEMO_MODE=true
+LOG_LEVEL=INFO
+EOF
+
+# 5. 运行服务器
+make uv-run
+```
+
+### 日常开发流程
+```bash
+# 1. 拉取最新代码
+git pull origin main
+
+# 2. 同步依赖（如果 uv.lock 有更新）
+make uv-sync
+
+# 3. 创建功能分支
+git checkout -b feat/new-feature
+
+# 4. 开发 + 测试
+make uv-test
+
+# 5. 代码检查
+make uv-verify
+
+# 6. 提交代码
+git add .
+git commit -m "feat: 添加新功能"
+
+# 7. 推送到远程
+git push origin feat/new-feature
+```
+
+## 性能优化
+
+### 异步编程最佳实践
+- 使用 `async/await` 处理 I/O 密集型操作
+- 避免在异步函数中使用阻塞调用
+- 使用 `asyncio.gather()` 并发执行多个任务
+
+```python
+# 好的实践
+results = await asyncio.gather(
+    fetch_market_data(market_id_1),
+    fetch_market_data(market_id_2),
+    fetch_market_data(market_id_3),
+)
+
+# 避免
+results = []
+for market_id in market_ids:
+    result = await fetch_market_data(market_id)  # 串行执行，慢
+    results.append(result)
+```
+
+### 缓存策略
+- 对频繁访问的市场数据使用缓存
+- 设置合理的缓存过期时间
+- 使用 `functools.lru_cache` 或 `aiocache`
+
+## 调试技巧
+
+### 启用详细日志
+```bash
+LOG_LEVEL=DEBUG make uv-run
+```
+
+### 使用 Python 调试器
+```python
+import pdb; pdb.set_trace()  # 设置断点
+```
+
+### 查看 MCP 通信
+```bash
+# 使用 MCP Inspector
+npx @modelcontextprotocol/inspector uv run python -m polymarket_mcp.server
+```
+
+## 常见问题
+
+### UV 相关
+**Q: `uv sync` 失败怎么办？**
+```bash
+# 清理缓存重试
+rm -rf .venv uv.lock
+uv sync
+```
+
+**Q: 如何升级依赖？**
+```bash
+uv lock --upgrade-package package-name
+uv sync
+```
+
+### 配置相关
+**Q: DEMO 模式下能否测试交易功能？**
+A: 不能。DEMO 模式只支持只读操作（市场查询、数据分析）。交易功能需要完整模式。
+
+**Q: API 密钥是必需的吗？**
+A: 不是。如果未提供，服务器会尝试自动创建。如果创建失败，会以只读模式运行。
+
+### 部署相关
+**Q: 如何在生产环境部署？**
+A: 参考 `doc/CONFIGURATION_GUIDE.md` 中的 Kubernetes 部署章节。
+
+## 参考资源
+
+### 官方文档
+- [Polymarket API 文档](https://docs.polymarket.com/)
+- [MCP 协议规范](https://modelcontextprotocol.io/)
+- [UV 文档](https://github.com/astral-sh/uv)
+
+### 项目文档
+- `README.md`: 项目概览和快速开始
+- `doc/CONFIGURATION_GUIDE.md`: 完整配置指南
+- `doc/mcp/README.md`: MCP 工具详细文档
+- `doc/security_audit.md`: 安全审计报告
+
+## 贡献指南
+
+1. Fork 项目到个人仓库
+2. 创建功能分支 (`git checkout -b feat/amazing-feature`)
+3. 提交更改 (`git commit -m 'feat: 添加某个功能'`)
+4. 推送到分支 (`git push origin feat/amazing-feature`)
+5. 创建 Pull Request
+
+### PR 检查清单
+- [ ] 代码通过 `make uv-verify` 验证
+- [ ] 添加了必要的测试
+- [ ] 更新了相关文档
+- [ ] 提交信息符合规范
+- [ ] 代码有适当的中文注释
+
+---
+
+**最后更新**: 2026-01-07
+**Python 版本**: 3.14+
+**UV 版本**: 最新稳定版
