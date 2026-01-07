@@ -1,7 +1,7 @@
 # Polymarket MCP Server - Makefile
-# Convenient commands for Docker operations
+# Convenient commands for Docker operations and UV management
 
-.PHONY: help build up down restart logs shell test clean
+.PHONY: help build up down restart logs shell test clean uv-install uv-sync uv-test uv-run verify
 
 # Default target
 .DEFAULT_GOAL := help
@@ -154,3 +154,143 @@ restore:
 	echo "Restoring from $$LATEST..."; \
 	docker run --rm -v polymarket-mcp_polymarket-data:/data -v $(PWD)/backups:/backup alpine tar xzf /backup/$$(basename $$LATEST) -C /data
 	@echo "Restore complete"
+
+# ============================================================================
+# UV 依赖管理命令 (Python 3.14)
+# ============================================================================
+
+## uv-install: 安装 UV 包管理器
+uv-install:
+	@echo "安装 UV..."
+	curl -LsSf https://astral.sh/uv/install.sh | sh
+
+## uv-sync: 同步并安装所有依赖
+uv-sync:
+	@echo "同步依赖（Python 3.14）..."
+	uv sync --all-extras
+
+## uv-update: 更新所有依赖到最新版本
+uv-update:
+	@echo "更新依赖..."
+	uv lock --upgrade
+	uv sync
+
+## uv-add: 添加新依赖 (用法: make uv-add PACKAGE=package-name)
+uv-add:
+	@if [ -z "$(PACKAGE)" ]; then \
+		echo "错误: 请指定包名. 用法: make uv-add PACKAGE=package-name"; \
+		exit 1; \
+	fi
+	uv add $(PACKAGE)
+
+## uv-add-dev: 添加开发依赖 (用法: make uv-add-dev PACKAGE=package-name)
+uv-add-dev:
+	@if [ -z "$(PACKAGE)" ]; then \
+		echo "错误: 请指定包名. 用法: make uv-add-dev PACKAGE=package-name"; \
+		exit 1; \
+	fi
+	uv add --dev $(PACKAGE)
+
+## uv-remove: 移除依赖 (用法: make uv-remove PACKAGE=package-name)
+uv-remove:
+	@if [ -z "$(PACKAGE)" ]; then \
+		echo "错误: 请指定包名. 用法: make uv-remove PACKAGE=package-name"; \
+		exit 1; \
+	fi
+	uv remove $(PACKAGE)
+
+## uv-run: 运行 MCP 服务器
+uv-run:
+	@echo "启动 Polymarket MCP 服务器..."
+	uv run polymarket-mcp
+
+## uv-web: 启动 Web 仪表板
+uv-web:
+	@echo "启动 Web 仪表板..."
+	uv run polymarket-web
+
+## uv-test: 运行测试套件
+uv-test:
+	@echo "运行测试..."
+	uv run pytest tests/ -v
+
+## uv-test-cov: 运行测试并生成覆盖率报告
+uv-test-cov:
+	@echo "运行测试（含覆盖率）..."
+	uv run pytest tests/ -v --cov=polymarket_mcp --cov-report=html
+	@echo "覆盖率报告: htmlcov/index.html"
+
+## uv-format: 格式化代码
+uv-format:
+	@echo "格式化代码..."
+	uv run black src/ tests/
+	uv run isort src/ tests/
+
+## uv-lint: 代码检查
+uv-lint:
+	@echo "代码检查..."
+	uv run ruff check src/ tests/
+	uv run mypy src/
+
+## uv-lint-fix: 自动修复代码问题
+uv-lint-fix:
+	@echo "自动修复代码问题..."
+	uv run ruff check --fix src/ tests/
+
+## verify: 验证项目配置
+verify:
+	@echo "验证项目配置..."
+	uv run python verify_setup.py
+
+## uv-clean: 清理虚拟环境和缓存
+uv-clean:
+	@echo "清理虚拟环境和缓存..."
+	rm -rf .venv
+	uv cache clean
+
+## uv-reinstall: 重新安装所有依赖
+uv-reinstall: uv-clean
+	@echo "重新安装依赖..."
+	uv sync --all-extras
+
+## uv-shell: 进入虚拟环境 shell
+uv-shell:
+	@echo "进入虚拟环境..."
+	@bash -c "source .venv/bin/activate && exec bash"
+
+## uv-python: 显示 Python 版本信息
+uv-python:
+	@echo "Python 版本信息:"
+	uv run python --version
+	@echo ""
+	@echo "可用的 Python 版本:"
+	uv python list
+
+## uv-list: 显示已安装的包
+uv-list:
+	@echo "已安装的包:"
+	uv pip list
+
+## demo: 运行演示脚本
+demo:
+	@echo "运行市场分析演示..."
+	uv run python demo_mcp_tools.py
+
+## smoke-test: 运行冒烟测试
+smoke-test:
+	@echo "运行冒烟测试..."
+	uv run python smoke_test.py
+
+## all-tests: 运行所有测试
+all-tests: verify uv-test smoke-test
+	@echo "✅ 所有测试完成！"
+
+## dev: 开发模式 - 安装依赖并验证
+dev: uv-sync verify
+	@echo "✅ 开发环境准备就绪！"
+	@echo ""
+	@echo "快速命令:"
+	@echo "  make uv-run       - 启动 MCP 服务器"
+	@echo "  make uv-web       - 启动 Web 仪表板"
+	@echo "  make uv-test      - 运行测试"
+	@echo "  make demo         - 运行演示"
