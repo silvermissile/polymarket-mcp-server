@@ -134,13 +134,15 @@ async def get_market_details(
     """
     try:
         # Determine which identifier to use
-        # 注意：Gamma API 使用查询参数而非路径参数
+        # 参考文档: https://docs.polymarket.com/developers/gamma-markets-api/fetch-markets-guide
         if slug:
-            data = await _fetch_gamma_api("/markets", {"slug": slug})
+            # 官方格式: GET /markets/slug/{slug}
+            data = await _fetch_gamma_api(f"/markets/slug/{slug}")
         elif condition_id:
             data = await _fetch_gamma_api("/markets", {"condition_id": condition_id})
         elif market_id:
-            data = await _fetch_gamma_api("/markets", {"id": market_id})
+            # 数字 ID 使用路径参数
+            data = await _fetch_gamma_api(f"/markets/{market_id}")
         else:
             raise ValueError("One of market_id, condition_id, or slug must be provided")
 

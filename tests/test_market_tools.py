@@ -186,6 +186,30 @@ class TestMarketAnalysis:
                 print(f"Market details: {details.get('question', details.get('title'))}")
 
     @pytest.mark.asyncio
+    async def test_get_market_details_by_slug(self):
+        """Test getting market details by slug
+        
+        参考官方文档: https://docs.polymarket.com/developers/gamma-markets-api/fetch-markets-guide
+        正确的 API 格式: GET /markets/slug/{slug}
+        """
+        # 先获取一个市场，拿到它的 slug
+        markets = await market_discovery.get_trending_markets(limit=1)
+
+        if len(markets) > 0:
+            market = markets[0]
+            slug = market.get("slug")
+
+            if slug:
+                # 使用 slug 查询市场详情
+                details = await market_analysis.get_market_details(slug=slug)
+
+                assert isinstance(details, dict)
+                assert "question" in details or "title" in details
+                # 验证返回的是同一个市场
+                assert details.get("slug") == slug
+                print(f"Market by slug: {details.get('question', details.get('title'))}")
+
+    @pytest.mark.asyncio
     async def test_get_current_price(self):
         """Test getting current price"""
         # Get a market with tokens
