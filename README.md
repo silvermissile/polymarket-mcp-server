@@ -200,9 +200,31 @@ The automated installer will:
 
 If you prefer manual setup:
 
+#### 使用 UV (推荐 - 极速安装) ⚡
+
 ```bash
 # Clone the repository
-git clone https://github.com/caiovicentino/polymarket-mcp-server.git
+git clone https://github.com/silvermissile/polymarket-mcp-server.git
+cd polymarket-mcp-server
+
+# 安装依赖（uv 会自动创建虚拟环境）
+uv sync --all-extras
+
+# 运行项目
+uv run polymarket-mcp
+```
+
+**为什么选择 UV？**
+- ⚡ 比 pip 快 10-100 倍
+- 🔒 自动锁定依赖版本 (`uv.lock`)
+- 🎯 无需手动管理虚拟环境
+- 📚 查看完整指南: [UV_GUIDE.md](UV_GUIDE.md)
+
+#### 使用传统 pip
+
+```bash
+# Clone the repository
+git clone https://github.com/silvermissile/polymarket-mcp-server.git
 cd polymarket-mcp-server
 
 # Create virtual environment
